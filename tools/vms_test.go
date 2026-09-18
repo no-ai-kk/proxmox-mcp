@@ -120,3 +120,44 @@ func TestGetVMConfig(t *testing.T) {
 		assertError(t, res, "config read failed")
 	})
 }
+
+func TestCreateVM(t *testing.T) {
+	t.Run("passes pool to client", func(t *testing.T) {
+		const upid = "UPID:pve1:000015E3:00000000:60F4B3A7:qmcreate:200:root@pam:"
+		mock := &mockProxmoxClient{
+			createVMFn: func(_ context.Context, node string, req *proxmox.CreateVMRequest) (string, error) {
+				if node != "pve1" {
+					t.Errorf("node: got %q, want pve1", node)
+				}
+				if req.Pool != "HermesManaged" {
+					t.Errorf("pool: got %q, want HermesManaged", req.Pool)
+				}
+				if req.Memory != 1024 || req.Cores != 1 {
+					t.Errorf("resources: got memory=%d cores=%d, want memory=1024 cores=1", req.Memory, req.Cores)
+				}
+				return upid, nil
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "create_vm", map[string]any{
+			"node": "pve1", "vmid": 200, "name": "test-vm", "pool": "HermesManaged",
+			"memory": 1024, "cores": 1,
+		})
+		assertResultJSON(t, res)
+	})
+
+	t.Run("propagates error", func(t *testing.T) {
+		mock := &mockProxmoxClient{
+			createVMFn: func(context.Context, string, *proxmox.CreateVMRequest) (string, error) {
+				return "", errors.New("permission denied")
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "create_vm", map[string]any{"node": "pve1", "vmid": 200})
+		assertError(t, res, "permission denied")
+	})
+}

@@ -11,10 +11,17 @@ type Config struct {
 	// Corresponds to the PROXMOX_ALLOW_DESTRUCTIVE environment variable.
 	// Defaults to false — destructive tools are not registered unless explicitly opted in.
 	AllowDestructive bool
+	// AllowedPool restricts mutating operations to members of this pool.
+	// An empty value preserves the unrestricted default behavior.
+	AllowedPool string
 }
 
 // RegisterAll wires all Proxmox MCP tools onto the provided server.
 func RegisterAll(s *mcp.Server, client proxmoxClient, cfg Config) {
+	if cfg.AllowedPool != "" {
+		client = &poolRestrictedClient{proxmoxClient: client, allowedPool: cfg.AllowedPool}
+	}
+
 	registerNodeTools(s, client)
 	registerVMTools(s, client)
 	registerContainerTools(s, client)

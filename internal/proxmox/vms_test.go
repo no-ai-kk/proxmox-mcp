@@ -369,12 +369,21 @@ func TestCreateVM_success(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		var body CreateVMRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if body.Pool != "HermesManaged" {
+			http.Error(w, "missing pool", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(jsonEnvelope(t, testUPID))
 	}))
 	defer srv.Close()
 
-	req := CreateVMRequest{VMID: 200, Name: "test-vm", Memory: 512, Cores: 1}
+	req := CreateVMRequest{VMID: 200, Name: "test-vm", Pool: "HermesManaged", Memory: 512, Cores: 1}
 	upid, err := newTestClient(t, srv.URL).CreateVM(context.Background(), "pve1", &req)
 	if err != nil {
 		t.Fatalf("CreateVM: %v", err)

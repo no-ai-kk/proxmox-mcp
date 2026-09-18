@@ -112,6 +112,7 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		Node   string `json:"node"           jsonschema:"node to create the VM on"`
 		VMID   int    `json:"vmid"           jsonschema:"numeric VM ID (must not already exist)"`
 		Name   string `json:"name,omitempty" jsonschema:"VM name"`
+		Pool   string `json:"pool,omitempty" jsonschema:"resource pool for the VM"`
 		Memory int    `json:"memory,omitempty" jsonschema:"memory in MB (e.g. 512)"`
 		Cores  int    `json:"cores,omitempty"  jsonschema:"number of CPU cores"`
 		ISO    string `json:"iso,omitempty"    jsonschema:"ISO drive in Proxmox format: storage:iso/file.iso,media=cdrom"`
@@ -130,6 +131,7 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		req := proxmox.CreateVMRequest{
 			VMID:   input.VMID,
 			Name:   input.Name,
+			Pool:   input.Pool,
 			Memory: input.Memory,
 			Cores:  input.Cores,
 			IDE2:   input.ISO,

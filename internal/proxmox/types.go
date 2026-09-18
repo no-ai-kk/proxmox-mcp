@@ -157,6 +157,7 @@ type CreateContainerSnapshotRequest struct {
 type CreateVMRequest struct {
 	VMID   int    `json:"vmid"`
 	Name   string `json:"name,omitempty"`
+	Pool   string `json:"pool,omitempty"`   // resource pool
 	Memory int    `json:"memory,omitempty"` // MB
 	Cores  int    `json:"cores,omitempty"`
 	IDE2   string `json:"ide2,omitempty"`   // ISO drive, e.g. "local:iso/file.iso,media=cdrom"

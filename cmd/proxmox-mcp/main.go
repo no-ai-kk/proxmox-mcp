@@ -11,6 +11,7 @@
 //
 //	PROXMOX_INSECURE          Set to "true" to skip TLS certificate verification
 //	PROXMOX_ALLOW_DESTRUCTIVE Set to "true" to enable delete_vm and delete_container tools
+//	PROXMOX_ALLOWED_POOL      Restrict mutating operations to an explicitly named resource pool
 //
 // Flags:
 //
@@ -64,6 +65,7 @@ func run() error {
 	}
 	insecure := os.Getenv("PROXMOX_INSECURE") == "true"
 	allowDestructive := os.Getenv("PROXMOX_ALLOW_DESTRUCTIVE") == "true"
+	allowedPool := os.Getenv("PROXMOX_ALLOWED_POOL")
 
 	client, err := proxmox.NewClient(apiURL, tokenID, tokenSecret, insecure)
 	if err != nil {
@@ -75,7 +77,10 @@ func run() error {
 		Version: "v0.1.0",
 	}, nil)
 
-	tools.RegisterAll(server, client, tools.Config{AllowDestructive: allowDestructive})
+	tools.RegisterAll(server, client, tools.Config{
+		AllowDestructive: allowDestructive,
+		AllowedPool:      allowedPool,
+	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
