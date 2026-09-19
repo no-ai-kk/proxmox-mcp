@@ -172,6 +172,7 @@ type CreateVMRequest struct {
 type CloneVMRequest struct {
 	NewID  int    `json:"newid"`
 	Name   string `json:"name,omitempty"`
+	Pool   string `json:"pool,omitempty"`   // destination resource pool
 	Target string `json:"target,omitempty"` // target node; defaults to source node
 }
 

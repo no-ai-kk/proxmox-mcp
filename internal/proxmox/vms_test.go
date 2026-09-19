@@ -419,12 +419,17 @@ func TestCloneVM_success(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["newid"] != float64(201) || body["pool"] != "HermesManaged" {
+			http.Error(w, "clone body missing atomic destination pool", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(jsonEnvelope(t, testUPID))
 	}))
 	defer srv.Close()
 
-	req := CloneVMRequest{NewID: 201, Name: "cloned-vm"}
+	req := CloneVMRequest{NewID: 201, Name: "cloned-vm", Pool: "HermesManaged"}
 	upid, err := newTestClient(t, srv.URL).CloneVM(context.Background(), "pve1", 100, &req)
 	if err != nil {
 		t.Fatalf("CloneVM: %v", err)

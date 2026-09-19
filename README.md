@@ -66,9 +66,8 @@ pveum user token add hermes@pve agent --privsep 1
 pveum pool add HermesManaged --comment "VMs managed by Hermes Agent"
 
 # Custom role for the operations exposed by this MCP.
-# VM.Clone is only needed when clone support is intentionally used without
-# PROXMOX_ALLOWED_POOL; restricted mode rejects clone destinations because the
-# current clone request cannot explicitly bind the destination pool.
+# VM.Clone is needed when clone support is intentionally used. In restricted
+# mode, the MCP also requires the clone destination pool in the clone request.
 pveum role add HermesVMAdmin --privs "VM.Audit,VM.Allocate,VM.Backup,VM.Config.CDROM,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Migrate,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
 
 # Read/discovery access: assign to BOTH the user and the token.
@@ -96,6 +95,8 @@ PROXMOX_TOKEN_ID=hermes@pve!agent
 PROXMOX_TOKEN_SECRET=REPLACE_WITH_SECRET_FROM_TOKEN_CREATION
 PROXMOX_INSECURE=true
 PROXMOX_ALLOWED_POOL=HermesManaged
+# Optional under pool restriction: example trusted template VMID.
+PROXMOX_ALLOWED_CLONE_SOURCE=901
 # Keep disabled unless destructive tools are deliberately required:
 PROXMOX_ALLOW_DESTRUCTIVE=false
 ```
@@ -110,11 +111,13 @@ The current implementation reads this variable once at server startup. When it i
 - `create_vm` requires an explicit `pool` argument. The value must exactly equal `PROXMOX_ALLOWED_POOL`; the MCP does not silently inject the pool.
 - `list_pools` explicitly resolves the configured pool instead of relying on unfiltered `GET /pools`, then returns that verified pool. `get_pool` remains available for explicit inspection.
 - `create_pool`, `update_pool`, and `delete_pool` are rejected locally while the restriction is enabled, so the agent cannot modify its own security boundary.
-- `clone_vm`, `clone_container`, `restore_vm`, `restore_container`, and `create_container` are rejected while restricted because the current requests cannot safely guarantee destination membership in the configured pool. VM/container backup remains subject to source membership verification.
+- `clone_vm` requires an explicit `pool` argument while restricted. The value must exactly equal `PROXMOX_ALLOWED_POOL`, and it is sent as the Proxmox clone operation's destination `pool` field atomically with `newid`; the MCP never creates outside the pool and moves afterward.
+- `PROXMOX_ALLOWED_CLONE_SOURCE` is an optional single VMID exception for `clone_vm` only. For example, with `PROXMOX_ALLOWED_CLONE_SOURCE=901`, VM 901 may be used as a read/clone source even when it is outside `HermesManaged`; it does not pass normal pool membership checks and does not gain start, stop, configure, resize, migrate, disk-move, snapshot, delete, or firewall mutation rights. A source VMID other than the configured value must be an actual member of the allowed pool.
+- `clone_container`, `restore_vm`, `restore_container`, and `create_container` remain rejected while restricted because their current requests cannot safely guarantee destination membership in the configured pool. VM/container backup remains subject to source membership verification.
 - Destructive tools are controlled separately by `PROXMOX_ALLOW_DESTRUCTIVE` and are disabled by default. If enabled, destructive VM/container operations still pass through the pool boundary.
 - Read-only operations remain governed by the Proxmox API token’s ACLs; the MCP-side restriction is primarily a mutation boundary.
 
-`PROXMOX_ALLOWED_POOL` is not a replacement for Proxmox ACLs. Keep both layers in place.
+`PROXMOX_ALLOWED_POOL` and `PROXMOX_ALLOWED_CLONE_SOURCE` are not replacements for Proxmox ACLs. Keep both layers in place: the MCP rejects calls that violate its local boundary, while Proxmox ACLs independently determine whether the token can read/clone the trusted source and mutate managed-pool guests. The example values `901` and `HermesManaged` are configuration examples, not hard-coded names or VMIDs.
 
 ### Verify the boundary before trusting the agent
 

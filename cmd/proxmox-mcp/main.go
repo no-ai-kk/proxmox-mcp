@@ -12,6 +12,7 @@
 //	PROXMOX_INSECURE          Set to "true" to skip TLS certificate verification
 //	PROXMOX_ALLOW_DESTRUCTIVE Set to "true" to enable delete_vm and delete_container tools
 //	PROXMOX_ALLOWED_POOL      Restrict mutating operations to an explicitly named resource pool
+//	PROXMOX_ALLOWED_CLONE_SOURCE VMID permitted as a clone source while pool restriction is active
 //
 // Flags:
 //
@@ -28,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -66,6 +68,10 @@ func run() error {
 	insecure := os.Getenv("PROXMOX_INSECURE") == "true"
 	allowDestructive := os.Getenv("PROXMOX_ALLOW_DESTRUCTIVE") == "true"
 	allowedPool := os.Getenv("PROXMOX_ALLOWED_POOL")
+	allowedCloneSource, err := parseAllowedCloneSource(os.Getenv("PROXMOX_ALLOWED_CLONE_SOURCE"))
+	if err != nil {
+		return err
+	}
 
 	client, err := proxmox.NewClient(apiURL, tokenID, tokenSecret, insecure)
 	if err != nil {
@@ -78,8 +84,9 @@ func run() error {
 	}, nil)
 
 	tools.RegisterAll(server, client, tools.Config{
-		AllowDestructive: allowDestructive,
-		AllowedPool:      allowedPool,
+		AllowDestructive:   allowDestructive,
+		AllowedPool:        allowedPool,
+		AllowedCloneSource: allowedCloneSource,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -119,6 +126,17 @@ func run() error {
 	}
 
 	return nil
+}
+
+func parseAllowedCloneSource(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	vmid, err := strconv.Atoi(value)
+	if err != nil || vmid <= 0 {
+		return 0, fmt.Errorf("PROXMOX_ALLOWED_CLONE_SOURCE must be a positive decimal VMID, got %q", value)
+	}
+	return vmid, nil
 }
 
 // requireEnv returns the value of the named environment variable or an error

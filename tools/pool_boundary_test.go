@@ -131,23 +131,75 @@ func TestPoolRestrictionMembership(t *testing.T) {
 	})
 }
 
-func TestPoolRestrictionCloneCannotEscape(t *testing.T) {
+func TestPoolRestrictionCloneVM(t *testing.T) {
+	newClient := func(called *bool) *poolRestrictedClient {
+		return &poolRestrictedClient{
+			proxmoxClient: &mockProxmoxClient{
+				getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
+					return &proxmox.Pool{Members: []proxmox.PoolMember{{Type: "qemu", VMID: 200}}}, nil
+				},
+				cloneVMFn: func(_ context.Context, _ string, _ int, req *proxmox.CloneVMRequest) (string, error) {
+					*called = req.Pool == "test-pool"
+					return "upid", nil
+				},
+			},
+			allowedPool:        "test-pool",
+			allowedCloneSource: 901,
+		}
+	}
+
+	t.Run("trusted source is allowed and destination is forwarded", func(t *testing.T) {
+		called := false
+		got, err := newClient(&called).CloneVM(context.Background(), "node", 901, &proxmox.CloneVMRequest{NewID: 902, Pool: "test-pool"})
+		if err != nil || got != "upid" || !called {
+			t.Fatalf("got %q, %v, called=%v", got, err, called)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		source int
+		pool   string
+		want   string
+	}{
+		{name: "wrong pool", source: 901, pool: "wrong-pool", want: "not allowed"},
+		{name: "omitted pool", source: 901, want: "explicitly specified"},
+		{name: "arbitrary outside-pool source", source: 100, pool: "test-pool", want: "not a member"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			_, err := newClient(&called).CloneVM(context.Background(), "node", tc.source, &proxmox.CloneVMRequest{NewID: 902, Pool: tc.pool})
+			if err == nil || !strings.Contains(err.Error(), tc.want) || called {
+				t.Fatalf("got err=%v called=%v", err, called)
+			}
+		})
+	}
+
+	t.Run("managed source remains allowed", func(t *testing.T) {
+		called := false
+		if _, err := newClient(&called).CloneVM(context.Background(), "node", 200, &proxmox.CloneVMRequest{NewID: 902, Pool: "test-pool"}); err != nil || !called {
+			t.Fatalf("managed source clone failed: err=%v called=%v", err, called)
+		}
+	})
+}
+
+func TestPoolRestrictionTrustedCloneSourceDoesNotBypassMutationBoundary(t *testing.T) {
 	called := false
 	client := &poolRestrictedClient{
 		proxmoxClient: &mockProxmoxClient{
 			getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
-				return &proxmox.Pool{Members: []proxmox.PoolMember{{Type: "qemu", VMID: 100}}}, nil
+				return &proxmox.Pool{}, nil
 			},
-			cloneVMFn: func(context.Context, string, int, *proxmox.CloneVMRequest) (string, error) {
+			startVMFn: func(context.Context, string, int) (string, error) {
 				called = true
 				return "upid", nil
 			},
 		},
-		allowedPool: "test-pool",
+		allowedPool:        "test-pool",
+		allowedCloneSource: 901,
 	}
-	_, err := client.CloneVM(context.Background(), "node", 100, &proxmox.CloneVMRequest{NewID: 101})
-	if err == nil || !strings.Contains(err.Error(), "cannot explicitly bind") || called {
-		t.Fatalf("got err=%v called=%v", err, called)
+	if _, err := client.StartVM(context.Background(), "node", 901); err == nil || called {
+		t.Fatalf("trusted clone source was mutable: err=%v called=%v", err, called)
 	}
 }
 

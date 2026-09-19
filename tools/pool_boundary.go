@@ -11,7 +11,8 @@ import (
 // resource-pool member mutation is sent to Proxmox.
 type poolRestrictedClient struct {
 	proxmoxClient
-	allowedPool string
+	allowedPool        string
+	allowedCloneSource int
 }
 
 func (c *poolRestrictedClient) verifyMember(ctx context.Context, kind string, vmid int) error {
@@ -82,10 +83,21 @@ func (c *poolRestrictedClient) CreateVM(ctx context.Context, node string, req *p
 }
 
 func (c *poolRestrictedClient) CloneVM(ctx context.Context, node string, vmid int, req *proxmox.CloneVMRequest) (string, error) {
-	if err := c.verifyVM(ctx, vmid); err != nil {
-		return "", err
+	if req == nil {
+		return "", fmt.Errorf("clone_vm request is nil")
 	}
-	return "", fmt.Errorf("clone_vm is unavailable when allowed pool %q is set: the Proxmox clone request cannot explicitly bind the destination to that pool", c.allowedPool)
+	if req.Pool == "" {
+		return "", fmt.Errorf("clone_vm destination pool must be explicitly specified and must equal allowed pool %q", c.allowedPool)
+	}
+	if req.Pool != c.allowedPool {
+		return "", fmt.Errorf("clone_vm destination pool %q is not allowed; must equal allowed pool %q", req.Pool, c.allowedPool)
+	}
+	if vmid != c.allowedCloneSource {
+		if err := c.verifyVM(ctx, vmid); err != nil {
+			return "", err
+		}
+	}
+	return c.proxmoxClient.CloneVM(ctx, node, vmid, req)
 }
 
 func (c *poolRestrictedClient) CreateContainer(ctx context.Context, node string, req *proxmox.CreateContainerRequest) (string, error) {

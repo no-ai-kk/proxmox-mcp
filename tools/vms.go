@@ -151,6 +151,7 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		VMID       int    `json:"vmid"                  jsonschema:"source VM ID"`
 		NewID      int    `json:"newid"                 jsonschema:"ID for the new VM"`
 		Name       string `json:"name,omitempty"        jsonschema:"name for the new VM"`
+		Pool       string `json:"pool,omitempty"        jsonschema:"destination resource pool"`
 		TargetNode string `json:"target_node,omitempty" jsonschema:"target node (defaults to source node)"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
@@ -160,6 +161,7 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		req := proxmox.CloneVMRequest{
 			NewID:  input.NewID,
 			Name:   input.Name,
+			Pool:   input.Pool,
 			Target: input.TargetNode,
 		}
 		upid, err := client.CloneVM(ctx, input.Node, input.VMID, &req)

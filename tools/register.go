@@ -14,12 +14,19 @@ type Config struct {
 	// AllowedPool restricts mutating operations to members of this pool.
 	// An empty value preserves the unrestricted default behavior.
 	AllowedPool string
+	// AllowedCloneSource permits clone_vm to use this VM as a source without
+	// treating it as a member of AllowedPool. Zero means no exception.
+	AllowedCloneSource int
 }
 
 // RegisterAll wires all Proxmox MCP tools onto the provided server.
 func RegisterAll(s *mcp.Server, client proxmoxClient, cfg Config) {
 	if cfg.AllowedPool != "" {
-		client = &poolRestrictedClient{proxmoxClient: client, allowedPool: cfg.AllowedPool}
+		client = &poolRestrictedClient{
+			proxmoxClient:      client,
+			allowedPool:        cfg.AllowedPool,
+			allowedCloneSource: cfg.AllowedCloneSource,
+		}
 	}
 
 	registerNodeTools(s, client)
