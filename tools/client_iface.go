@@ -25,6 +25,7 @@ type proxmoxClient interface {
 	// VMs
 	ListVMs(ctx context.Context, node string) ([]proxmox.VM, error)
 	GetVMStatus(ctx context.Context, node string, vmid int) (map[string]any, error)
+	GetVMGuestNetworkInterfaces(ctx context.Context, node string, vmid int) ([]proxmox.GuestNetworkInterface, error)
 	StartVM(ctx context.Context, node string, vmid int) (string, error)
 	StopVM(ctx context.Context, node string, vmid int) (string, error)
 	ShutdownVM(ctx context.Context, node string, vmid int) (string, error)
@@ -35,6 +36,7 @@ type proxmoxClient interface {
 	CloneVM(ctx context.Context, node string, vmid int, req *proxmox.CloneVMRequest) (string, error)
 	GetVMConfig(ctx context.Context, node string, vmid int) (map[string]any, error)
 	SetVMConfig(ctx context.Context, node string, vmid int, req *proxmox.SetVMConfigRequest) error
+	SetVMCloudInit(ctx context.Context, node string, vmid int, req *proxmox.SetVMCloudInitRequest) error
 	ResizeVMDisk(ctx context.Context, node string, vmid int, req *proxmox.ResizeDiskRequest) (string, error)
 	MigrateVM(ctx context.Context, node string, vmid int, req *proxmox.MigrateVMRequest) (string, error)
 	RestoreVM(ctx context.Context, node string, req *proxmox.RestoreVMRequest) (string, error)

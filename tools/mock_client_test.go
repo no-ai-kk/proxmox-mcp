@@ -23,23 +23,25 @@ type mockProxmoxClient struct {
 	nodeCommandFn     func(context.Context, string, string) error
 
 	// VMs
-	listVMsFn      func(context.Context, string) ([]proxmox.VM, error)
-	getVMStatusFn  func(context.Context, string, int) (map[string]any, error)
-	startVMFn      func(context.Context, string, int) (string, error)
-	stopVMFn       func(context.Context, string, int) (string, error)
-	shutdownVMFn   func(context.Context, string, int) (string, error)
-	rebootVMFn     func(context.Context, string, int) (string, error)
-	suspendVMFn    func(context.Context, string, int) (string, error)
-	resumeVMFn     func(context.Context, string, int) (string, error)
-	createVMFn     func(context.Context, string, *proxmox.CreateVMRequest) (string, error)
-	cloneVMFn      func(context.Context, string, int, *proxmox.CloneVMRequest) (string, error)
-	getVMConfigFn  func(context.Context, string, int) (map[string]any, error)
-	setVMConfigFn  func(context.Context, string, int, *proxmox.SetVMConfigRequest) error
-	resizeVMDiskFn func(context.Context, string, int, *proxmox.ResizeDiskRequest) (string, error)
-	migrateVMFn    func(context.Context, string, int, *proxmox.MigrateVMRequest) (string, error)
-	restoreVMFn    func(context.Context, string, *proxmox.RestoreVMRequest) (string, error)
-	moveVMDiskFn   func(context.Context, string, int, *proxmox.MoveVMDiskRequest) (string, error)
-	deleteVMFn     func(context.Context, string, int, bool) (string, error)
+	listVMsFn                     func(context.Context, string) ([]proxmox.VM, error)
+	getVMStatusFn                 func(context.Context, string, int) (map[string]any, error)
+	getVMGuestNetworkInterfacesFn func(context.Context, string, int) ([]proxmox.GuestNetworkInterface, error)
+	startVMFn                     func(context.Context, string, int) (string, error)
+	stopVMFn                      func(context.Context, string, int) (string, error)
+	shutdownVMFn                  func(context.Context, string, int) (string, error)
+	rebootVMFn                    func(context.Context, string, int) (string, error)
+	suspendVMFn                   func(context.Context, string, int) (string, error)
+	resumeVMFn                    func(context.Context, string, int) (string, error)
+	createVMFn                    func(context.Context, string, *proxmox.CreateVMRequest) (string, error)
+	cloneVMFn                     func(context.Context, string, int, *proxmox.CloneVMRequest) (string, error)
+	getVMConfigFn                 func(context.Context, string, int) (map[string]any, error)
+	setVMConfigFn                 func(context.Context, string, int, *proxmox.SetVMConfigRequest) error
+	setVMCloudInitFn              func(context.Context, string, int, *proxmox.SetVMCloudInitRequest) error
+	resizeVMDiskFn                func(context.Context, string, int, *proxmox.ResizeDiskRequest) (string, error)
+	migrateVMFn                   func(context.Context, string, int, *proxmox.MigrateVMRequest) (string, error)
+	restoreVMFn                   func(context.Context, string, *proxmox.RestoreVMRequest) (string, error)
+	moveVMDiskFn                  func(context.Context, string, int, *proxmox.MoveVMDiskRequest) (string, error)
+	deleteVMFn                    func(context.Context, string, int, bool) (string, error)
 
 	// Containers
 	listContainersFn      func(context.Context, string) ([]proxmox.Container, error)
@@ -212,6 +214,13 @@ func (m *mockProxmoxClient) GetVMStatus(ctx context.Context, node string, vmid i
 	return nil, nil
 }
 
+func (m *mockProxmoxClient) GetVMGuestNetworkInterfaces(ctx context.Context, node string, vmid int) ([]proxmox.GuestNetworkInterface, error) {
+	if m.getVMGuestNetworkInterfacesFn != nil {
+		return m.getVMGuestNetworkInterfacesFn(ctx, node, vmid)
+	}
+	return nil, nil
+}
+
 func (m *mockProxmoxClient) StartVM(ctx context.Context, node string, vmid int) (string, error) {
 	if m.startVMFn != nil {
 		return m.startVMFn(ctx, node, vmid)
@@ -278,6 +287,13 @@ func (m *mockProxmoxClient) GetVMConfig(ctx context.Context, node string, vmid i
 func (m *mockProxmoxClient) SetVMConfig(ctx context.Context, node string, vmid int, req *proxmox.SetVMConfigRequest) error {
 	if m.setVMConfigFn != nil {
 		return m.setVMConfigFn(ctx, node, vmid, req)
+	}
+	return nil
+}
+
+func (m *mockProxmoxClient) SetVMCloudInit(ctx context.Context, node string, vmid int, req *proxmox.SetVMCloudInitRequest) error {
+	if m.setVMCloudInitFn != nil {
+		return m.setVMCloudInitFn(ctx, node, vmid, req)
 	}
 	return nil
 }

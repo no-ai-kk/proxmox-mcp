@@ -83,6 +83,21 @@ type VM struct {
 	DiskWrite int64   `json:"diskwrite"`
 }
 
+// GuestNetworkInterface is a compact view of a QEMU guest agent network
+// interface, excluding the agent's traffic statistics and other raw fields.
+type GuestNetworkInterface struct {
+	Name        string           `json:"name"`
+	MACAddress  string           `json:"mac_address,omitempty"`
+	IPAddresses []GuestIPAddress `json:"ip_addresses,omitempty"`
+}
+
+// GuestIPAddress is an address reported by the QEMU guest agent.
+type GuestIPAddress struct {
+	Address      string `json:"address"`
+	Family       string `json:"family"`
+	PrefixLength int    `json:"prefix_length"`
+}
+
 // Container represents a single entry from GET /nodes/{node}/lxc.
 type Container struct {
 	VMID    int     `json:"vmid"`
@@ -207,6 +222,14 @@ type SetVMConfigRequest struct {
 	Cores       int    `json:"cores,omitempty"`
 	OnBoot      *int   `json:"onboot,omitempty"` // nil = omit; 0 = disabled; 1 = start at boot
 	Description string `json:"description,omitempty"`
+}
+
+// SetVMCloudInitRequest is the request body for configuring the supported
+// minimal cloud-init fields via PUT /nodes/{node}/qemu/{vmid}/config.
+type SetVMCloudInitRequest struct {
+	CIUser    string `json:"ciuser"`
+	SSHKeys   string `json:"sshkeys"`
+	IPConfig0 string `json:"ipconfig0"`
 }
 
 // SetContainerConfigRequest is the request body for PUT /nodes/{node}/lxc/{vmid}/config.

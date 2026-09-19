@@ -43,6 +43,18 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_vm_guest_network_interfaces",
+		Description: "Get compact network interface and IP address information from a running VM's QEMU guest agent. Performs one query; retry later if the guest agent is not ready.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input vmInput) (*mcp.CallToolResult, any, error) {
+		interfaces, err := client.GetVMGuestNetworkInterfaces(ctx, input.Node, input.VMID)
+		if err != nil {
+			return errorResult(fmt.Errorf("get_vm_guest_network_interfaces: %w", err))
+		}
+		return jsonResult(interfaces)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "start_vm",
 		Description: "Start a QEMU VM. Returns the async task ID.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input vmInput) (*mcp.CallToolResult, any, error) {
@@ -218,6 +230,28 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		}
 		if err := client.SetVMConfig(ctx, input.Node, input.VMID, &req); err != nil {
 			return errorResult(fmt.Errorf("set_vm_config: %w", err))
+		}
+		return jsonResult(map[string]string{"status": "ok"})
+	})
+
+	type setVMCloudInitInput struct {
+		Node      string `json:"node"      jsonschema:"node the VM is on"`
+		VMID      int    `json:"vmid"      jsonschema:"numeric VM ID"`
+		CIUser    string `json:"ciuser"    jsonschema:"cloud-init user name"`
+		SSHKeys   string `json:"sshkeys"   jsonschema:"OpenSSH public key or newline-separated public keys"`
+		IPConfig0 string `json:"ipconfig0" jsonschema:"Proxmox ipconfig0 value, e.g. ip=dhcp"`
+	}
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_vm_cloudinit",
+		Description: "Configure minimal cloud-init settings on a QEMU VM using ciuser, sshkeys, and ipconfig0.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, input setVMCloudInitInput) (*mcp.CallToolResult, any, error) {
+		req := proxmox.SetVMCloudInitRequest{
+			CIUser:    input.CIUser,
+			SSHKeys:   input.SSHKeys,
+			IPConfig0: input.IPConfig0,
+		}
+		if err := client.SetVMCloudInit(ctx, input.Node, input.VMID, &req); err != nil {
+			return errorResult(fmt.Errorf("set_vm_cloudinit: %w", err))
 		}
 		return jsonResult(map[string]string{"status": "ok"})
 	})

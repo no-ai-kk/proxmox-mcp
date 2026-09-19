@@ -222,6 +222,114 @@ func TestPoolRestrictionTrustedCloneSourceDoesNotBypassMutationBoundary(t *testi
 	}
 }
 
+func TestPoolRestrictionSetVMCloudInit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		vmid      int
+		wantError bool
+	}{
+		{name: "managed VM is allowed", vmid: 200},
+		{name: "outside VM is rejected", vmid: 201, wantError: true},
+		{name: "trusted clone source is rejected", vmid: 901, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			client := &poolRestrictedClient{
+				proxmoxClient: &mockProxmoxClient{
+					getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
+						return &proxmox.Pool{Members: []proxmox.PoolMember{{Type: "qemu", VMID: 200}}}, nil
+					},
+					setVMCloudInitFn: func(context.Context, string, int, *proxmox.SetVMCloudInitRequest) error {
+						called = true
+						return nil
+					},
+				},
+				allowedPool:        "HermesManaged",
+				allowedCloneSource: 901,
+			}
+			err := client.SetVMCloudInit(context.Background(), "node", tc.vmid, &proxmox.SetVMCloudInitRequest{})
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "not a member") || called {
+					t.Fatalf("boundary rejection failed: err=%v called=%v", err, called)
+				}
+				return
+			}
+			if err != nil || !called {
+				t.Fatalf("managed VM was not forwarded: err=%v called=%v", err, called)
+			}
+		})
+	}
+}
+
+func TestPoolRestrictionGetVMGuestNetworkInterfaces(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		vmid      int
+		wantError bool
+	}{
+		{name: "managed VM is allowed", vmid: 200},
+		{name: "outside VM is rejected", vmid: 201, wantError: true},
+		{name: "trusted clone source is rejected", vmid: 901, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			client := &poolRestrictedClient{
+				proxmoxClient: &mockProxmoxClient{
+					getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
+						return &proxmox.Pool{Members: []proxmox.PoolMember{{Type: "qemu", VMID: 200}}}, nil
+					},
+					getVMGuestNetworkInterfacesFn: func(context.Context, string, int) ([]proxmox.GuestNetworkInterface, error) {
+						called = true
+						return []proxmox.GuestNetworkInterface{{Name: "eth0"}}, nil
+					},
+				},
+				allowedPool:        "HermesManaged",
+				allowedCloneSource: 901,
+			}
+			got, err := client.GetVMGuestNetworkInterfaces(context.Background(), "node", tc.vmid)
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), "not a member") || called {
+					t.Fatalf("boundary rejection failed: got=%#v err=%v called=%v", got, err, called)
+				}
+				return
+			}
+			if err != nil || !called || len(got) != 1 {
+				t.Fatalf("managed VM was not forwarded: got=%#v err=%v called=%v", got, err, called)
+			}
+		})
+	}
+}
+
+func TestPoolRestrictionNewVMOperationsFailClosedOnPoolLookupError(t *testing.T) {
+	cloudInitCalled := false
+	guestNetworkCalled := false
+	client := &poolRestrictedClient{
+		proxmoxClient: &mockProxmoxClient{
+			getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
+				return nil, errors.New("pool lookup denied")
+			},
+			setVMCloudInitFn: func(context.Context, string, int, *proxmox.SetVMCloudInitRequest) error {
+				cloudInitCalled = true
+				return nil
+			},
+			getVMGuestNetworkInterfacesFn: func(context.Context, string, int) ([]proxmox.GuestNetworkInterface, error) {
+				guestNetworkCalled = true
+				return nil, nil
+			},
+		},
+		allowedPool: "HermesManaged",
+	}
+
+	cloudInitErr := client.SetVMCloudInit(context.Background(), "node", 200, &proxmox.SetVMCloudInitRequest{})
+	if cloudInitErr == nil || !strings.Contains(cloudInitErr.Error(), "pool lookup denied") || cloudInitCalled {
+		t.Fatalf("cloud-init did not fail closed: err=%v called=%v", cloudInitErr, cloudInitCalled)
+	}
+	_, guestNetworkErr := client.GetVMGuestNetworkInterfaces(context.Background(), "node", 200)
+	if guestNetworkErr == nil || !strings.Contains(guestNetworkErr.Error(), "pool lookup denied") || guestNetworkCalled {
+		t.Fatalf("guest network query did not fail closed: err=%v called=%v", guestNetworkErr, guestNetworkCalled)
+	}
+}
+
 func TestPoolRestrictionContainerOperations(t *testing.T) {
 	called := false
 	client := &poolRestrictedClient{

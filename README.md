@@ -73,7 +73,7 @@ pveum pool add HermesManaged --comment "VMs managed by Hermes Agent"
 
 # Managed-guest role. VM.Clone permits cloning sources that are themselves
 # members of HermesManaged; it does not grant access to VM 901 outside it.
-pveum role add HermesVMAdmin --privs "Pool.Audit,VM.Audit,VM.Allocate,VM.Backup,VM.Clone,VM.Config.CDROM,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Migrate,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
+pveum role add HermesVMAdmin --privs "Pool.Audit,VM.Audit,VM.Allocate,VM.Backup,VM.Clone,VM.Config.CDROM,VM.Config.Cloudinit,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.GuestAgent.Audit,VM.Migrate,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
 
 # Narrow source-template role: audit and clone only.
 pveum role add HermesCloneSource --privs "VM.Audit,VM.Clone"
@@ -102,7 +102,7 @@ pveum acl modify /storage/local-lvm --roles PVEDatastoreUser --users hermes@pve 
 pveum acl modify /storage/local-lvm --roles PVEDatastoreUser --tokens hermes@pve!agent --propagate 1
 ```
 
-`HermesVMAdmin` is assigned only to `/pool/HermesManaged`. It retains the repository’s required managed-VM privileges and adds `VM.Clone` for managed-pool sources plus `Pool.Audit` so the MCP can resolve and inspect actual pool membership. Do not grant it `Pool.Allocate`, `Permissions.Modify`, `Sys.Modify`, `Administrator`, or another broad administration privilege.
+`HermesVMAdmin` is assigned only to `/pool/HermesManaged`. It retains the repository’s required managed-VM privileges and adds `VM.Clone` for managed-pool sources, `Pool.Audit` so the MCP can resolve and inspect actual pool membership, `VM.Config.Cloudinit` for `set_vm_cloudinit`, and `VM.GuestAgent.Audit` for read-only guest-agent network discovery on Proxmox VE 9. Do not grant it `Pool.Allocate`, `Permissions.Modify`, `Sys.Modify`, `VM.GuestAgent.Unrestricted`, `Administrator`, or another broad administration privilege.
 
 `HermesCloneSource` is deliberately separate: VM 901 (`debian-13-cloud-qemu` in this example) remains outside `HermesManaged`, may be inspected and cloned from, but must not receive `VM.Config.*`, `VM.PowerMgmt`, `VM.Snapshot`, `VM.Allocate`, or other mutation privileges. The MCP setting `PROXMOX_ALLOWED_CLONE_SOURCE=901` is an additional defense-in-depth boundary, not a replacement for this ACL isolation.
 
@@ -162,7 +162,7 @@ The current implementation reads these variables once at server startup. When `P
 - VM 901 remains subject to the normal pool boundary for start, stop, configure, resize, migrate, disk move, snapshot, delete, firewall, and other mutations. The external-source exception is only for the clone-source path.
 - `clone_container`, `restore_vm`, `restore_container`, and `create_container` remain rejected while restricted because their current requests cannot safely guarantee destination membership in the configured pool. VM/container backup remains subject to source membership verification.
 - Destructive tools are controlled separately by `PROXMOX_ALLOW_DESTRUCTIVE` and are disabled by default. If enabled, destructive VM/container operations still pass through the pool boundary.
-- Read-only operations remain governed by the Proxmox API token’s ACLs; the MCP-side restriction is primarily a mutation boundary.
+- Read-only operations generally remain governed by the Proxmox API token’s ACLs. The guest-level `get_vm_guest_network_interfaces` tool is deliberately stricter: it verifies QEMU VM membership in the allowed pool before querying the guest agent.
 
 The two security layers are independent:
 
@@ -170,6 +170,26 @@ The two security layers are independent:
 - **MCP layer:** `PROXMOX_ALLOWED_POOL=HermesManaged`; `PROXMOX_ALLOWED_CLONE_SOURCE=901`; clone destination pool is mandatory and must match exactly; 901 is exceptional only as a clone source; normal mutations of 901 remain rejected locally; destructive tools remain independently disabled unless explicitly enabled.
 
 Neither layer replaces the other. The ACLs protect the live Proxmox API boundary, while the MCP checks provide a second local fail-closed boundary.
+
+### Autonomous VM provisioning primitives
+
+The intended provisioning sequence is:
+
+```text
+clone_vm(full=true)
+→ set_vm_config (CPU/RAM)
+→ resize_vm_disk
+→ set_vm_cloudinit
+→ start_vm
+→ get_vm_guest_network_interfaces
+→ SSH provisioning outside this MCP
+```
+
+Poll each task-returning operation with `get_task_status` before starting the dependent step. `set_vm_config` and `set_vm_cloudinit` are synchronous. `get_vm_guest_network_interfaces` performs one guest-agent query and does not wait internally; retry it through the normal agent loop while the VM and guest agent start.
+
+`set_vm_cloudinit` requires `VM.Config.Cloudinit` on the target VM, supplied here by `HermesVMAdmin` at `/pool/HermesManaged`. It accepts only `ciuser`, `sshkeys`, and the native Proxmox `ipconfig0` string (for example, `ip=dhcp`). SSH public keys are carried as JSON strings to the Proxmox VM config API, preserving OpenSSH spaces, base64 characters, comments, and newlines without adding a password field.
+
+On Proxmox VE 9, the exact minimum privilege for `GET /nodes/{node}/qemu/{vmid}/agent/network-get-interfaces` is `VM.GuestAgent.Audit` on the target VM. The tool does not expose arbitrary guest-agent commands. `HermesCloneSource` remains unchanged and does not receive either privilege.
 
 ### Validated example deployment
 
@@ -228,6 +248,7 @@ Repeat these tests for your own ACL paths; the example values are not hard-coded
 | `list_vms` | QEMU VMs on a node | `node` |
 | `get_vm_status` | VM status and current config | `node`, `vmid` |
 | `get_vm_config` | Full VM configuration | `node`, `vmid` |
+| `get_vm_guest_network_interfaces` | Compact QEMU guest-agent network interfaces and IP addresses; one query with no internal retry | `node`, `vmid` |
 | `start_vm` | Start a VM (returns task UPID) | `node`, `vmid` |
 | `stop_vm` | Hard stop a VM (returns task UPID) | `node`, `vmid` |
 | `shutdown_vm` | Graceful ACPI shutdown (returns task UPID) | `node`, `vmid` |
@@ -241,6 +262,7 @@ Repeat these tests for your own ACL paths; the example values are not hard-coded
 | `create_vm` | Create a new QEMU VM (returns task UPID) | `node`, `vmid`, `name` (optional), `pool` (optional), `memory` (optional), `cores` (optional), `iso` (optional), `disk` (optional), `net0` (optional), `start` (optional) |
 | `clone_vm` | Clone a VM to a new ID (returns task UPID); `full=true` requests a full clone and `full=false` requests a linked clone when supported by Proxmox for the source and storage. The `full` parameter is required; clone mode is never inferred. | `node`, `vmid`, `newid`, `full`, `name` (optional), `pool` (optional), `target_node` (optional) |
 | `set_vm_config` | Update VM config (sync, no task) | `node`, `vmid`, `name` (optional), `memory` (optional), `cores` (optional), `onboot` (optional), `description` (optional) |
+| `set_vm_cloudinit` | Configure minimal cloud-init settings (sync, no task) | `node`, `vmid`, `ciuser`, `sshkeys`, `ipconfig0` |
 | `resize_vm_disk` | Resize a VM disk (returns task UPID) | `node`, `vmid`, `disk` (e.g. `scsi0`), `size` (e.g. `+10G` or `50G`) |
 | `migrate_vm` | Migrate a VM to another node (returns task UPID) | `node`, `vmid`, `target`, `online` (optional, live migrate) |
 | `restore_vm` | Restore a VM from a vzdump backup archive (returns task UPID) | `node`, `vmid`, `archive` (volid), `storage` (optional), `start` (optional) |

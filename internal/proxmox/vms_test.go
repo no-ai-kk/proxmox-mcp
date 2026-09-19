@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -75,6 +76,66 @@ func TestGetVMStatus_success(t *testing.T) {
 	}
 	if got["status"] != "running" {
 		t.Errorf("status: got %v, want running", got["status"])
+	}
+}
+
+func TestGetVMGuestNetworkInterfaces_parsesCompactResponse(t *testing.T) {
+	t.Parallel()
+
+	response := map[string]any{"result": []map[string]any{
+		{
+			"name":             "eth0",
+			"hardware-address": "52:54:00:12:34:56",
+			"statistics":       map[string]any{"rx-bytes": 123456},
+			"ip-addresses": []map[string]any{
+				{"ip-address": "192.0.2.10", "ip-address-type": "ipv4", "prefix": 24},
+				{"ip-address": "2001:db8::10", "ip-address-type": "ipv6", "prefix": 64},
+			},
+		},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "want GET", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/nodes/pve1/qemu/200/agent/network-get-interfaces" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jsonEnvelope(t, response))
+	}))
+	defer srv.Close()
+
+	got, err := newTestClient(t, srv.URL).GetVMGuestNetworkInterfaces(context.Background(), "pve1", 200)
+	if err != nil {
+		t.Fatalf("GetVMGuestNetworkInterfaces: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "eth0" || got[0].MACAddress != "52:54:00:12:34:56" {
+		t.Fatalf("unexpected interfaces: %#v", got)
+	}
+	if len(got[0].IPAddresses) != 2 {
+		t.Fatalf("got %d IP addresses, want 2", len(got[0].IPAddresses))
+	}
+	if got[0].IPAddresses[0].Address != "192.0.2.10" || got[0].IPAddresses[0].Family != "ipv4" || got[0].IPAddresses[0].PrefixLength != 24 {
+		t.Errorf("unexpected IPv4 address: %#v", got[0].IPAddresses[0])
+	}
+	if got[0].IPAddresses[1].Address != "2001:db8::10" || got[0].IPAddresses[1].Family != "ipv6" || got[0].IPAddresses[1].PrefixLength != 64 {
+		t.Errorf("unexpected IPv6 address: %#v", got[0].IPAddresses[1])
+	}
+}
+
+func TestGetVMGuestNetworkInterfaces_agentUnavailable(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "QEMU guest agent is not running", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(t, srv.URL).GetVMGuestNetworkInterfaces(context.Background(), "pve1", 200)
+	if err == nil || !strings.Contains(err.Error(), "QEMU guest agent is not running") {
+		t.Fatalf("expected clear guest-agent unavailable error, got %v", err)
 	}
 }
 
@@ -590,6 +651,63 @@ func TestSetVMConfig_omitempty(t *testing.T) {
 	}
 	if decoded["memory"] == nil {
 		t.Error("field \"memory\" should be present but was absent")
+	}
+}
+
+func TestSetVMCloudInit_serializesFieldsExactly(t *testing.T) {
+	t.Parallel()
+
+	const sshKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP6+4/2+exampleKeyMaterial= hermes@example"
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "want PUT", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/nodes/pve1/qemu/200/config" {
+			http.NotFound(w, r)
+			return
+		}
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jsonEnvelope(t, nil))
+	}))
+	defer srv.Close()
+
+	req := SetVMCloudInitRequest{CIUser: "hermes", SSHKeys: sshKey, IPConfig0: "ip=dhcp"}
+	if err := newTestClient(t, srv.URL).SetVMCloudInit(context.Background(), "pve1", 200, &req); err != nil {
+		t.Fatalf("SetVMCloudInit: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(gotBody, &decoded); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if decoded["ciuser"] != "hermes" {
+		t.Errorf("ciuser: got %v, want hermes", decoded["ciuser"])
+	}
+	if decoded["sshkeys"] != sshKey {
+		t.Errorf("sshkeys changed during serialization: got %q, want %q", decoded["sshkeys"], sshKey)
+	}
+	if decoded["ipconfig0"] != "ip=dhcp" {
+		t.Errorf("ipconfig0: got %v, want ip=dhcp", decoded["ipconfig0"])
+	}
+	if len(decoded) != 3 {
+		t.Errorf("cloud-init request contains unexpected fields: %#v", decoded)
+	}
+}
+
+func TestSetVMCloudInit_nilRequest(t *testing.T) {
+	t.Parallel()
+
+	err := newTestClient(t, "http://127.0.0.1").SetVMCloudInit(context.Background(), "pve1", 200, nil)
+	if err == nil || !strings.Contains(err.Error(), "req must not be nil") {
+		t.Fatalf("expected nil request error, got %v", err)
 	}
 }
 

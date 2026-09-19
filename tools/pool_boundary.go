@@ -178,6 +178,20 @@ func (c *poolRestrictedClient) SetVMConfig(ctx context.Context, node string, vmi
 	return c.proxmoxClient.SetVMConfig(ctx, node, vmid, req)
 }
 
+func (c *poolRestrictedClient) SetVMCloudInit(ctx context.Context, node string, vmid int, req *proxmox.SetVMCloudInitRequest) error {
+	if err := c.verifyVM(ctx, vmid); err != nil {
+		return err
+	}
+	return c.proxmoxClient.SetVMCloudInit(ctx, node, vmid, req)
+}
+
+func (c *poolRestrictedClient) GetVMGuestNetworkInterfaces(ctx context.Context, node string, vmid int) ([]proxmox.GuestNetworkInterface, error) {
+	if err := c.verifyVM(ctx, vmid); err != nil {
+		return nil, err
+	}
+	return c.proxmoxClient.GetVMGuestNetworkInterfaces(ctx, node, vmid)
+}
+
 func (c *poolRestrictedClient) ResizeVMDisk(ctx context.Context, node string, vmid int, req *proxmox.ResizeDiskRequest) (string, error) {
 	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err

@@ -29,6 +29,47 @@ func (c *Client) GetVMStatus(ctx context.Context, node string, vmid int) (map[st
 	return status, nil
 }
 
+// GetVMGuestNetworkInterfaces returns a compact representation of the network
+// interfaces reported by the QEMU guest agent. The call performs one query and
+// returns immediately if the VM or guest agent is not ready.
+func (c *Client) GetVMGuestNetworkInterfaces(ctx context.Context, node string, vmid int) ([]GuestNetworkInterface, error) {
+	type agentIPAddress struct {
+		Address string `json:"ip-address"`
+		Family  string `json:"ip-address-type"`
+		Prefix  int    `json:"prefix"`
+	}
+	type agentInterface struct {
+		Name        string           `json:"name"`
+		MACAddress  string           `json:"hardware-address"`
+		IPAddresses []agentIPAddress `json:"ip-addresses"`
+	}
+	var response struct {
+		Result []agentInterface `json:"result"`
+	}
+	path := "/nodes/" + url.PathEscape(node) + "/qemu/" + strconv.Itoa(vmid) + "/agent/network-get-interfaces"
+	if err := c.get(ctx, path, &response); err != nil {
+		return nil, fmt.Errorf("getting guest network interfaces for VM %d on node %s: %w", vmid, node, err)
+	}
+
+	interfaces := make([]GuestNetworkInterface, 0, len(response.Result))
+	for _, iface := range response.Result {
+		addresses := make([]GuestIPAddress, 0, len(iface.IPAddresses))
+		for _, address := range iface.IPAddresses {
+			addresses = append(addresses, GuestIPAddress{
+				Address:      address.Address,
+				Family:       address.Family,
+				PrefixLength: address.Prefix,
+			})
+		}
+		interfaces = append(interfaces, GuestNetworkInterface{
+			Name:        iface.Name,
+			MACAddress:  iface.MACAddress,
+			IPAddresses: addresses,
+		})
+	}
+	return interfaces, nil
+}
+
 // StartVM starts a QEMU VM. It returns the UPID of the asynchronous task.
 // The task completes asynchronously; use GetTaskStatus to poll for completion.
 func (c *Client) StartVM(ctx context.Context, node string, vmid int) (string, error) {
@@ -156,6 +197,20 @@ func (c *Client) SetVMConfig(ctx context.Context, node string, vmid int, req *Se
 	path := "/nodes/" + url.PathEscape(node) + "/qemu/" + strconv.Itoa(vmid) + "/config"
 	if err := c.put(ctx, path, req, &result); err != nil {
 		return fmt.Errorf("setting config for VM %d on node %s: %w", vmid, node, err)
+	}
+	return nil
+}
+
+// SetVMCloudInit configures the supported minimal cloud-init fields for a VM
+// synchronously via the standard VM config endpoint.
+func (c *Client) SetVMCloudInit(ctx context.Context, node string, vmid int, req *SetVMCloudInitRequest) error {
+	if req == nil {
+		return errors.New("SetVMCloudInit: req must not be nil")
+	}
+	var result any
+	path := "/nodes/" + url.PathEscape(node) + "/qemu/" + strconv.Itoa(vmid) + "/config"
+	if err := c.put(ctx, path, req, &result); err != nil {
+		return fmt.Errorf("setting cloud-init config for VM %d on node %s: %w", vmid, node, err)
 	}
 	return nil
 }

@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -226,4 +228,131 @@ func TestCloneVM(t *testing.T) {
 			t.Fatal("clone client was called without an explicit clone mode")
 		}
 	})
+}
+
+func TestSetVMCloudInit(t *testing.T) {
+	const sshKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP6+4/2+exampleKeyMaterial= hermes@example"
+	var got *proxmox.SetVMCloudInitRequest
+	mock := &mockProxmoxClient{
+		setVMCloudInitFn: func(_ context.Context, node string, vmid int, req *proxmox.SetVMCloudInitRequest) error {
+			if node != "pve1" || vmid != 200 {
+				t.Errorf("target: got node=%q vmid=%d", node, vmid)
+			}
+			got = req
+			return nil
+		},
+	}
+	cs, cleanup := connectTestServer(t, mock)
+	defer cleanup()
+
+	res := callTool(t, cs, "set_vm_cloudinit", map[string]any{
+		"node": "pve1", "vmid": 200, "ciuser": "hermes", "sshkeys": sshKey, "ipconfig0": "ip=dhcp",
+	})
+	assertResultJSON(t, res)
+	if got == nil || got.CIUser != "hermes" || got.SSHKeys != sshKey || got.IPConfig0 != "ip=dhcp" {
+		t.Fatalf("unexpected cloud-init request: %#v", got)
+	}
+}
+
+func TestGetVMGuestNetworkInterfaces(t *testing.T) {
+	t.Run("returns compact IPv4 and IPv6 data", func(t *testing.T) {
+		mock := &mockProxmoxClient{
+			getVMGuestNetworkInterfacesFn: func(_ context.Context, node string, vmid int) ([]proxmox.GuestNetworkInterface, error) {
+				if node != "pve1" || vmid != 200 {
+					t.Errorf("target: got node=%q vmid=%d", node, vmid)
+				}
+				return []proxmox.GuestNetworkInterface{{
+					Name:       "eth0",
+					MACAddress: "52:54:00:12:34:56",
+					IPAddresses: []proxmox.GuestIPAddress{
+						{Address: "192.0.2.10", Family: "ipv4", PrefixLength: 24},
+						{Address: "2001:db8::10", Family: "ipv6", PrefixLength: 64},
+					},
+				}}, nil
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "get_vm_guest_network_interfaces", map[string]any{"node": "pve1", "vmid": 200})
+		assertResultJSON(t, res)
+		text := res.Content[0].(*mcp.TextContent).Text
+		var got []proxmox.GuestNetworkInterface
+		if err := json.Unmarshal([]byte(text), &got); err != nil {
+			t.Fatalf("unmarshal result: %v", err)
+		}
+		if len(got) != 1 || len(got[0].IPAddresses) != 2 || got[0].IPAddresses[1].Family != "ipv6" {
+			t.Fatalf("unexpected result: %#v", got)
+		}
+	})
+
+	t.Run("reports guest agent unavailable clearly", func(t *testing.T) {
+		mock := &mockProxmoxClient{
+			getVMGuestNetworkInterfacesFn: func(context.Context, string, int) ([]proxmox.GuestNetworkInterface, error) {
+				return nil, errors.New("QEMU guest agent is not running")
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "get_vm_guest_network_interfaces", map[string]any{"node": "pve1", "vmid": 200})
+		assertError(t, res, "QEMU guest agent is not running")
+	})
+}
+
+func TestProvisioningToolSchemas(t *testing.T) {
+	cs, cleanup := connectTestServer(t, &mockProxmoxClient{})
+	defer cleanup()
+
+	result, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	wantProperties := map[string][]string{
+		"set_vm_cloudinit":                {"ciuser", "ipconfig0", "node", "sshkeys", "vmid"},
+		"get_vm_guest_network_interfaces": {"node", "vmid"},
+	}
+	for toolName, want := range wantProperties {
+		var tool *mcp.Tool
+		for _, candidate := range result.Tools {
+			if candidate.Name == toolName {
+				tool = candidate
+				break
+			}
+		}
+		if tool == nil {
+			t.Fatalf("tool %q not registered", toolName)
+		}
+		schema, ok := tool.InputSchema.(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q schema type: %T", toolName, tool.InputSchema)
+		}
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("tool %q properties type: %T", toolName, schema["properties"])
+		}
+		got := make([]string, 0, len(properties))
+		for name := range properties {
+			got = append(got, name)
+		}
+		slices.Sort(got)
+		if !slices.Equal(got, want) {
+			t.Errorf("tool %q properties: got %v, want %v", toolName, got, want)
+		}
+		required, ok := schema["required"].([]any)
+		if !ok {
+			t.Fatalf("tool %q required type: %T", toolName, schema["required"])
+		}
+		gotRequired := make([]string, 0, len(required))
+		for _, name := range required {
+			gotRequired = append(gotRequired, name.(string))
+		}
+		slices.Sort(gotRequired)
+		if !slices.Equal(gotRequired, want) {
+			t.Errorf("tool %q required: got %v, want %v", toolName, gotRequired, want)
+		}
+		if schema["additionalProperties"] != false {
+			t.Errorf("tool %q additionalProperties: got %v, want false", toolName, schema["additionalProperties"])
+		}
+	}
 }
