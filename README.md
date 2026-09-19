@@ -41,7 +41,7 @@ An [MCP](https://modelcontextprotocol.io) server that exposes [Proxmox VE](https
 | `create_vm_snapshot` | Create a VM snapshot (returns task UPID) | `node`, `vmid`, `snapname`, `description` (optional) |
 | `rollback_vm_snapshot` | Roll back a VM to a snapshot (returns task UPID) | `node`, `vmid`, `snapname` |
 | `delete_vm_snapshot` | Delete a VM snapshot (returns task UPID) | `node`, `vmid`, `snapname` |
-| `create_vm` | Create a new QEMU VM (returns task UPID) | `node`, `vmid`, `name` (optional), `memory` (optional), `cores` (optional), `iso` (optional), `disk` (optional), `net0` (optional), `start` (optional) |
+| `create_vm` | Create a new QEMU VM (returns task UPID) | `node`, `vmid`, `name` (optional), `pool` (optional), `memory` (optional), `cores` (optional), `iso` (optional), `disk` (optional), `net0` (optional), `start` (optional) |
 | `clone_vm` | Clone a VM to a new ID (returns task UPID) | `node`, `vmid`, `newid`, `name` (optional), `target_node` (optional) |
 | `set_vm_config` | Update VM config (sync, no task) | `node`, `vmid`, `name` (optional), `memory` (optional), `cores` (optional), `onboot` (optional), `description` (optional) |
 | `resize_vm_disk` | Resize a VM disk (returns task UPID) | `node`, `vmid`, `disk` (e.g. `scsi0`), `size` (e.g. `+10G` or `50G`) |
@@ -204,6 +204,7 @@ All configuration is via environment variables:
 | `PROXMOX_TOKEN_SECRET` | yes | Token UUID secret |
 | `PROXMOX_INSECURE` | no | `true` to skip TLS verification (self-signed certs) |
 | `PROXMOX_ALLOW_DESTRUCTIVE` | no | `true` to register `delete_vm`, `delete_container`, `delete_storage_content`, `reboot_node`, `shutdown_node`, and `delete_pool` tools (default: disabled) |
+| `PROXMOX_ALLOWED_POOL` | no | Restrict resource-pool management to the named pool. When set, VM/container mutations verify membership, `create_vm` requires an explicit matching `pool`, pool mutations are rejected, and clone/restore/new-container operations that cannot bind a destination pool are rejected. The pool is still verified through Proxmox; unset preserves normal behavior. |
 
 Source your `.env` file before running:
 
