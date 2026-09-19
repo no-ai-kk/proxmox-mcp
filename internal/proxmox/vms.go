@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // ListVMs returns all QEMU virtual machines on the specified node.
@@ -207,12 +208,21 @@ func (c *Client) SetVMCloudInit(ctx context.Context, node string, vmid int, req 
 	if req == nil {
 		return errors.New("SetVMCloudInit: req must not be nil")
 	}
+	request := *req
+	request.SSHKeys = encodeProxmoxSSHKeys(request.SSHKeys)
 	var result any
 	path := "/nodes/" + url.PathEscape(node) + "/qemu/" + strconv.Itoa(vmid) + "/config"
-	if err := c.put(ctx, path, req, &result); err != nil {
+	if err := c.put(ctx, path, &request, &result); err != nil {
 		return fmt.Errorf("setting cloud-init config for VM %d on node %s: %w", vmid, node, err)
 	}
 	return nil
+}
+
+// encodeProxmoxSSHKeys prepares the raw OpenSSH key value for Proxmox's
+// urlencoded VM config parameter. QueryEscape is used for its percent-escape
+// rules, but its form-encoding of spaces as '+' is not accepted by Proxmox.
+func encodeProxmoxSSHKeys(keys string) string {
+	return strings.ReplaceAll(url.QueryEscape(strings.TrimSpace(keys)), "+", "%20")
 }
 
 // ResizeVMDisk resizes a disk attached to a QEMU VM. It returns the UPID of

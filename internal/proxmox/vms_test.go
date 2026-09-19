@@ -654,10 +654,11 @@ func TestSetVMConfig_omitempty(t *testing.T) {
 	}
 }
 
-func TestSetVMCloudInit_serializesFieldsExactly(t *testing.T) {
+func TestSetVMCloudInit_encodesProxmoxFields(t *testing.T) {
 	t.Parallel()
 
-	const sshKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP6+4/2+exampleKeyMaterial= hermes@example"
+	const sshKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample+/with=characters user@example\n"
+	const wantSSHKeys = "ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAIExample%2B%2Fwith%3Dcharacters%20user%40example"
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
@@ -691,14 +692,27 @@ func TestSetVMCloudInit_serializesFieldsExactly(t *testing.T) {
 	if decoded["ciuser"] != "hermes" {
 		t.Errorf("ciuser: got %v, want hermes", decoded["ciuser"])
 	}
-	if decoded["sshkeys"] != sshKey {
-		t.Errorf("sshkeys changed during serialization: got %q, want %q", decoded["sshkeys"], sshKey)
+	if decoded["sshkeys"] != wantSSHKeys {
+		t.Errorf("sshkeys: got %q, want %q", decoded["sshkeys"], wantSSHKeys)
+	}
+	if strings.Contains(decoded["sshkeys"].(string), "+") || strings.Contains(decoded["sshkeys"].(string), "%252B") {
+		t.Errorf("sshkeys contains invalid or double encoding: %q", decoded["sshkeys"])
 	}
 	if decoded["ipconfig0"] != "ip=dhcp" {
 		t.Errorf("ipconfig0: got %v, want ip=dhcp", decoded["ipconfig0"])
 	}
 	if len(decoded) != 3 {
 		t.Errorf("cloud-init request contains unexpected fields: %#v", decoded)
+	}
+}
+
+func TestEncodeProxmoxSSHKeys_escapesPercentOnce(t *testing.T) {
+	t.Parallel()
+
+	const raw = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample+/with=characters user@example%host"
+	const want = "ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAIExample%2B%2Fwith%3Dcharacters%20user%40example%25host"
+	if got := encodeProxmoxSSHKeys(raw); got != want {
+		t.Errorf("encoded sshkeys: got %q, want %q", got, want)
 	}
 }
 

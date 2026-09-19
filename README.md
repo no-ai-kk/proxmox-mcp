@@ -187,7 +187,7 @@ clone_vm(full=true)
 
 Poll each task-returning operation with `get_task_status` before starting the dependent step. `set_vm_config` and `set_vm_cloudinit` are synchronous. `get_vm_guest_network_interfaces` performs one guest-agent query and does not wait internally; retry it through the normal agent loop while the VM and guest agent start.
 
-`set_vm_cloudinit` requires `VM.Config.Cloudinit` on the target VM, supplied here by `HermesVMAdmin` at `/pool/HermesManaged`. It accepts only `ciuser`, `sshkeys`, and the native Proxmox `ipconfig0` string (for example, `ip=dhcp`). SSH public keys are carried as JSON strings to the Proxmox VM config API, preserving OpenSSH spaces, base64 characters, comments, and newlines without adding a password field.
+`set_vm_cloudinit` requires `VM.Config.Cloudinit` on the target VM, supplied here by `HermesVMAdmin` at `/pool/HermesManaged`. It accepts only `ciuser`, `sshkeys`, and the native Proxmox `ipconfig0` string (for example `ip=dhcp`). Hermes accepts a normal raw OpenSSH public key, trims surrounding whitespace, and applies Proxmox's strict percent encoding to `sshkeys` internally without adding a password field.
 
 On Proxmox VE 9, the exact minimum privilege for `GET /nodes/{node}/qemu/{vmid}/agent/network-get-interfaces` is `VM.GuestAgent.Audit` on the target VM. The tool does not expose arbitrary guest-agent commands. `HermesCloneSource` remains unchanged and does not receive either privilege.
 
