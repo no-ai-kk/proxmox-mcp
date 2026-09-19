@@ -174,6 +174,7 @@ type CloneVMRequest struct {
 	Name   string `json:"name,omitempty"`
 	Pool   string `json:"pool,omitempty"`   // destination resource pool
 	Target string `json:"target,omitempty"` // target node; defaults to source node
+	Full   bool   `json:"full"`             // true for a full clone, false for a linked clone
 }
 
 // CreateContainerRequest is the request body for POST /nodes/{node}/lxc.

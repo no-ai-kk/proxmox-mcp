@@ -239,7 +239,7 @@ Repeat these tests for your own ACL paths; the example values are not hard-coded
 | `rollback_vm_snapshot` | Roll back a VM to a snapshot (returns task UPID) | `node`, `vmid`, `snapname` |
 | `delete_vm_snapshot` | Delete a VM snapshot (returns task UPID) | `node`, `vmid`, `snapname` |
 | `create_vm` | Create a new QEMU VM (returns task UPID) | `node`, `vmid`, `name` (optional), `pool` (optional), `memory` (optional), `cores` (optional), `iso` (optional), `disk` (optional), `net0` (optional), `start` (optional) |
-| `clone_vm` | Clone a VM to a new ID (returns task UPID) | `node`, `vmid`, `newid`, `name` (optional), `target_node` (optional) |
+| `clone_vm` | Clone a VM to a new ID (returns task UPID); `full=true` requests a full clone and `full=false` requests a linked clone when supported by Proxmox for the source and storage. The `full` parameter is required; clone mode is never inferred. | `node`, `vmid`, `newid`, `full`, `name` (optional), `pool` (optional), `target_node` (optional) |
 | `set_vm_config` | Update VM config (sync, no task) | `node`, `vmid`, `name` (optional), `memory` (optional), `cores` (optional), `onboot` (optional), `description` (optional) |
 | `resize_vm_disk` | Resize a VM disk (returns task UPID) | `node`, `vmid`, `disk` (e.g. `scsi0`), `size` (e.g. `+10G` or `50G`) |
 | `migrate_vm` | Migrate a VM to another node (returns task UPID) | `node`, `vmid`, `target`, `online` (optional, live migrate) |

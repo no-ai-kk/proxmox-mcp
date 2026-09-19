@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gordcurrie/proxmox-mcp/internal/proxmox"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestListVMs(t *testing.T) {
@@ -159,5 +161,69 @@ func TestCreateVM(t *testing.T) {
 
 		res := callTool(t, cs, "create_vm", map[string]any{"node": "pve1", "vmid": 200})
 		assertError(t, res, "permission denied")
+	})
+}
+
+func TestCloneVM(t *testing.T) {
+	t.Run("passes explicit full mode and pool to client", func(t *testing.T) {
+		const upid = "UPID:pve1:000015E3:00000000:60F4B3A7:qmclone:201:root@pam:"
+		mock := &mockProxmoxClient{
+			cloneVMFn: func(_ context.Context, node string, vmid int, req *proxmox.CloneVMRequest) (string, error) {
+				if node != "pve1" || vmid != 901 || req.NewID != 201 || req.Pool != "HermesManaged" || !req.Full {
+					t.Errorf("clone request: node=%q vmid=%d req=%+v", node, vmid, req)
+				}
+				return upid, nil
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "clone_vm", map[string]any{
+			"node": "pve1", "vmid": 901, "newid": 201, "pool": "HermesManaged", "full": true,
+		})
+		assertResultJSON(t, res)
+	})
+
+	t.Run("passes explicit linked mode", func(t *testing.T) {
+		mock := &mockProxmoxClient{
+			cloneVMFn: func(_ context.Context, _ string, _ int, req *proxmox.CloneVMRequest) (string, error) {
+				if req.Full {
+					t.Errorf("full: got true, want false")
+				}
+				return "upid", nil
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		res := callTool(t, cs, "clone_vm", map[string]any{
+			"node": "pve1", "vmid": 901, "newid": 202, "pool": "HermesManaged", "full": false,
+		})
+		assertResultJSON(t, res)
+	})
+
+	t.Run("rejects omitted clone mode", func(t *testing.T) {
+		called := false
+		mock := &mockProxmoxClient{
+			cloneVMFn: func(context.Context, string, int, *proxmox.CloneVMRequest) (string, error) {
+				called = true
+				return "upid", nil
+			},
+		}
+		cs, cleanup := connectTestServer(t, mock)
+		defer cleanup()
+
+		params := &mcp.CallToolParams{
+			Name: "clone_vm",
+			Arguments: map[string]any{
+				"node": "pve1", "vmid": 901, "newid": 203, "pool": "HermesManaged",
+			},
+		}
+		if _, err := cs.CallTool(context.Background(), params); err == nil || !strings.Contains(err.Error(), "missing properties: [\"full\"]") {
+			t.Fatalf("expected omitted full to be rejected by schema, got %v", err)
+		}
+		if called {
+			t.Fatal("clone client was called without an explicit clone mode")
+		}
 	})
 }

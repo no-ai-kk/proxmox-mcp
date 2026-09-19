@@ -153,16 +153,21 @@ func registerVMTools(s *mcp.Server, client proxmoxClient) {
 		Name       string `json:"name,omitempty"        jsonschema:"name for the new VM"`
 		Pool       string `json:"pool,omitempty"        jsonschema:"destination resource pool"`
 		TargetNode string `json:"target_node,omitempty" jsonschema:"target node (defaults to source node)"`
+		Full       *bool  `json:"full"                  jsonschema:"required,true requests a full clone; false requests a linked clone when supported by Proxmox for the source and storage"`
 	}
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "clone_vm",
-		Description: "Clone a QEMU VM to a new VM ID. Returns the async task ID. Use get_task_status to poll for completion.",
+		Description: "Clone a QEMU VM to a new VM ID. The required full parameter must be true for a full clone or false for a linked clone when supported by Proxmox for the source and storage. Returns the async task ID. Use get_task_status to poll for completion.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input cloneVMInput) (*mcp.CallToolResult, any, error) {
+		if input.Full == nil {
+			return errorResult(fmt.Errorf("clone_vm: full must be explicitly specified; true requests a full clone and false requests a linked clone"))
+		}
 		req := proxmox.CloneVMRequest{
 			NewID:  input.NewID,
 			Name:   input.Name,
 			Pool:   input.Pool,
 			Target: input.TargetNode,
+			Full:   *input.Full,
 		}
 		upid, err := client.CloneVM(ctx, input.Node, input.VMID, &req)
 		if err != nil {

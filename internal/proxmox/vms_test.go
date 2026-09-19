@@ -420,8 +420,8 @@ func TestCloneVM_success(t *testing.T) {
 			return
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["newid"] != float64(201) || body["pool"] != "HermesManaged" {
-			http.Error(w, "clone body missing atomic destination pool", http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["newid"] != float64(201) || body["pool"] != "HermesManaged" || body["full"] != true {
+			http.Error(w, "clone body missing atomic destination pool or full-clone mode", http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -429,13 +429,33 @@ func TestCloneVM_success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	req := CloneVMRequest{NewID: 201, Name: "cloned-vm", Pool: "HermesManaged"}
+	req := CloneVMRequest{NewID: 201, Name: "cloned-vm", Pool: "HermesManaged", Full: true}
 	upid, err := newTestClient(t, srv.URL).CloneVM(context.Background(), "pve1", 100, &req)
 	if err != nil {
 		t.Fatalf("CloneVM: %v", err)
 	}
 	if upid != testUPID {
 		t.Errorf("upid: got %q, want %q", upid, testUPID)
+	}
+}
+
+func TestCloneVM_linkedCloneSerializesFullFalse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body["newid"] != float64(202) || body["pool"] != "HermesManaged" || body["full"] != false {
+			http.Error(w, "clone body missing linked-clone mode or atomic destination pool", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(jsonEnvelope(t, testUPID))
+	}))
+	defer srv.Close()
+
+	req := CloneVMRequest{NewID: 202, Pool: "HermesManaged", Full: false}
+	if _, err := newTestClient(t, srv.URL).CloneVM(context.Background(), "pve1", 100, &req); err != nil {
+		t.Fatalf("CloneVM linked clone: %v", err)
 	}
 }
 
