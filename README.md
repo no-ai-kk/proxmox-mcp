@@ -207,6 +207,45 @@ Against the documented example Proxmox VE 9 installation, the privilege-separate
 
 These are results from the documented example deployment. Repeat equivalent positive and negative tests after adapting the identities, pool, template, storage, and SDN paths to another environment.
 
+## Hermes VM provisioning skill
+
+This repository includes a portable/reference Hermes skill at:
+
+`skills/proxmox-vm-provisioning/SKILL.md`
+
+It teaches Hermes to select an unused VMID, full-clone an approved Debian
+template directly into the managed pool, configure CPU/RAM and disk, apply
+cloud-init, start the VM, discover its address through
+`get_vm_guest_network_interfaces`, SSH with a dedicated provisioning identity,
+install the requested workload, and verify the result. It requires the
+defense-in-depth model described above: a configured allowed pool and trusted
+clone source, narrow Proxmox ACLs/API-token permissions, and destructive tools
+disabled by default.
+
+The validated reference values are `HermesManaged`, template VMID `901`,
+protected Hermes VMID `100`, guest user `hermes-admin`, and
+`~/.ssh/hermes_managed_ed25519` plus its `.pub` file. These are deployment
+specific examples, not universal requirements. A different installation must
+replace them along with its own `PROXMOX_API_URL`, token settings,
+`PROXMOX_ALLOWED_POOL`, optional `PROXMOX_ALLOWED_CLONE_SOURCE`, storage,
+network, and ACL paths. The cloud-init interface accepts a normal raw
+OpenSSH public key; the MCP performs Proxmox-specific `sshkeys` encoding.
+
+The operational copy installed for this Hermes profile is:
+
+`/home/kostya/.hermes/skills/infrastructure/proxmox-vm-provisioning/SKILL.md`
+
+The repository and installed files are intentionally independent and are not
+symlinked. The installed copy contains this deployment's concrete values and
+has no dependency on the Git checkout, while the repository copy is a portable
+starting point to review and adapt after a fresh clone. Installation consists
+of copying or adapting the repository skill into Hermes' normal user-skill
+location; deleting the checkout afterward does not affect the installed copy.
+
+After replacing `/usr/local/bin/proxmox-mcp`, restart the relevant MCP process
+through the normal Hermes lifecycle before acceptance testing. A running
+process can continue executing a replaced `(deleted)` binary.
+
 ### Verify the boundary before trusting the agent
 
 With the MCP configured, verify at minimum that:
