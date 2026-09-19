@@ -2,6 +2,130 @@
 
 An [MCP](https://modelcontextprotocol.io) server that exposes [Proxmox VE](https://www.proxmox.com/en/proxmox-virtual-environment/) cluster operations as tools, built in Go using the official [go-sdk](https://github.com/modelcontextprotocol/go-sdk). Tool responses are compact JSON (no indentation) to minimise token usage.
 
+> **This fork is tailored for Hermes Agent.** It keeps the upstream project’s general-purpose Proxmox MCP functionality while adding security and usability features for a Hermes deployment that is intentionally restricted to a Proxmox resource pool. The server remains usable by other MCP clients; Hermes is the deployment this fork was designed and tested around.
+>
+> Names such as `hermes@pve`, `hermes@pve!agent`, `HermesManaged`, `HermesVMAdmin`, and `PROXMOX_ALLOWED_POOL=HermesManaged` are conventional examples, not hard-coded requirements. Choose your own user, token, role, and pool names. `PROXMOX_ALLOWED_POOL` must match the pool configured for the agent.
+
+The intended deployment shape is:
+
+```text
+Hermes Agent
+     │
+     │ MCP
+     ▼
+proxmox-mcp
+     │
+     │ dedicated privilege-separated API token
+     ▼
+Proxmox VE
+     │
+     ├── HermesManaged pool  ← agent may manage these VMs
+     ├── Hermes VM           ← protected
+     ├── Home Assistant VM   ← protected
+     └── other resources     ← protected
+```
+
+The upstream project and attribution are preserved; the restricted-agent behavior described below is specific to this fork.
+
+## Restricted / Agent Setup
+
+This fork supports defense in depth for an MCP client that should manage only one Proxmox resource pool:
+
+1. **Proxmox ACLs are authoritative.** Run the MCP with a dedicated Proxmox user and API token. Do not use `root@pam` or an Administrator token.
+2. **The MCP adds a second boundary.** When `PROXMOX_ALLOWED_POOL` is set, `proxmox-mcp` verifies pool membership before VM/LXC mutations and rejects unsafe destination operations locally.
+3. **The layers are independent.** The MCP rejects calls outside its configured pool; Proxmox independently evaluates the API token’s ACLs. Security must not depend on Hermes behaving correctly.
+4. **The intended result is fail-closed.** An incorrect or unexpectedly broad MCP call still cannot mutate resources outside the pool if the Proxmox ACLs are also correctly scoped.
+
+Do not grant broad VM administration or allocation privileges at `/` or `/vms`. That would weaken or defeat the pool-based ACL boundary. Keep protected infrastructure, including the VM running Hermes, outside the managed pool.
+
+### Example architecture names
+
+The examples below use:
+
+- Proxmox user: `hermes@pve`
+- Privilege-separated API token: `hermes@pve!agent`
+- Managed pool: `HermesManaged`
+- Custom VM role: `HermesVMAdmin`
+- MCP setting: `PROXMOX_ALLOWED_POOL=HermesManaged`
+
+These are examples only and can be replaced consistently with names appropriate to your installation.
+
+### Create the Proxmox identity and ACLs
+
+Use a dedicated `pve`-realm user and keep API-token privilege separation enabled. A privilege-separated token’s effective permissions are constrained by the permissions assigned to both the underlying user and the token, so assign the required ACLs to both identities. Do not disable privilege separation as a shortcut.
+
+The following commands use the documented `pveum` syntax. Run them as a Proxmox administrator, substitute your own names if needed, and store the token secret securely when it is printed; never commit it.
+
+```bash
+# Dedicated user and privilege-separated token
+pveum user add hermes@pve --comment "Hermes Agent"
+# The token secret is displayed once; save it in a secret manager.
+pveum user token add hermes@pve agent --privsep 1
+
+# Resource pool for agent-managed guests
+pveum pool add HermesManaged --comment "VMs managed by Hermes Agent"
+
+# Custom role for the operations exposed by this MCP.
+# VM.Clone is only needed when clone support is intentionally used without
+# PROXMOX_ALLOWED_POOL; restricted mode rejects clone destinations because the
+# current clone request cannot explicitly bind the destination pool.
+pveum role add HermesVMAdmin --privs "VM.Audit,VM.Allocate,VM.Backup,VM.Config.CDROM,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Migrate,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
+
+# Read/discovery access: assign to BOTH the user and the token.
+pveum acl modify / --roles PVEAuditor --users hermes@pve --propagate 1
+pveum acl modify / --roles PVEAuditor --tokens hermes@pve!agent --propagate 1
+
+# Managed-guest mutation access: assign to BOTH at the pool only.
+pveum acl modify /pool/HermesManaged --roles HermesVMAdmin --users hermes@pve --propagate 1
+pveum acl modify /pool/HermesManaged --roles HermesVMAdmin --tokens hermes@pve!agent --propagate 1
+
+# Storage space access: restrict this to the storage used by managed guests.
+pveum acl modify /storage/local-lvm --roles PVEDatastoreUser --users hermes@pve --propagate 1
+pveum acl modify /storage/local-lvm --roles PVEDatastoreUser --tokens hermes@pve!agent --propagate 1
+```
+
+The role list above reflects the current MCP’s supported managed-guest operations: audit/discovery, VM creation, backup, CD-ROM/CPU/disk/memory/network/options changes, migration, power management, and snapshots. `VM.Config.HWType`, `VM.Config.Cloudinit`, console, monitor, and broad system-administration privileges are not required by the current tool inputs. Proxmox may require additional storage-specific privileges for a particular disk, backup, or migration workflow; grant only the minimum required at the relevant storage or pool path and verify with an actual test.
+
+Do **not** assign `HermesVMAdmin` at `/`, `/vms`, or another broad path. Do not grant `Pool.Allocate`, `Permissions.Modify`, `Sys.Modify`, or `Administrator` to the agent identities.
+
+### MCP configuration
+
+```dotenv
+PROXMOX_API_URL=https://PROXMOX_HOST:8006/api2/json
+PROXMOX_TOKEN_ID=hermes@pve!agent
+PROXMOX_TOKEN_SECRET=REPLACE_WITH_SECRET_FROM_TOKEN_CREATION
+PROXMOX_INSECURE=true
+PROXMOX_ALLOWED_POOL=HermesManaged
+# Keep disabled unless destructive tools are deliberately required:
+PROXMOX_ALLOW_DESTRUCTIVE=false
+```
+
+`PROXMOX_INSECURE=true` is convenient for a local Proxmox installation using its self-signed certificate. Where practical, trust the Proxmox CA or use a properly validated certificate instead. Never store a real token secret in Git or commit `.env`.
+
+### `PROXMOX_ALLOWED_POOL` semantics
+
+The current implementation reads this variable once at server startup. When it is unset or empty, the existing unrestricted MCP behavior is preserved. When it is set:
+
+- Existing VM/LXC mutations first resolve the configured pool through Proxmox and require the target resource to be an actual `qemu` or `lxc` member of that pool. A membership lookup failure rejects the mutation locally.
+- `create_vm` requires an explicit `pool` argument. The value must exactly equal `PROXMOX_ALLOWED_POOL`; the MCP does not silently inject the pool.
+- `list_pools` explicitly resolves the configured pool instead of relying on unfiltered `GET /pools`, then returns that verified pool. `get_pool` remains available for explicit inspection.
+- `create_pool`, `update_pool`, and `delete_pool` are rejected locally while the restriction is enabled, so the agent cannot modify its own security boundary.
+- `clone_vm`, `clone_container`, `restore_vm`, `restore_container`, and `create_container` are rejected while restricted because the current requests cannot safely guarantee destination membership in the configured pool. VM/container backup remains subject to source membership verification.
+- Destructive tools are controlled separately by `PROXMOX_ALLOW_DESTRUCTIVE` and are disabled by default. If enabled, destructive VM/container operations still pass through the pool boundary.
+- Read-only operations remain governed by the Proxmox API token’s ACLs; the MCP-side restriction is primarily a mutation boundary.
+
+`PROXMOX_ALLOWED_POOL` is not a replacement for Proxmox ACLs. Keep both layers in place.
+
+### Verify the boundary before trusting the agent
+
+After configuring your own user, token, ACLs, pool, and storage, test all three cases with the actual MCP client:
+
+1. Create a VM with `pool` explicitly set to your configured allowed pool. It should reach Proxmox and succeed if the ACLs and storage permissions are correct.
+2. Try creating a VM without `pool`, and try again with a different pool. Both should fail locally.
+3. Try mutating an existing protected VM outside the allowed pool. It should fail locally before the mutation reaches Proxmox.
+
+This fork’s Hermes deployment was tested with the equivalent cases: VM creation in `HermesManaged` succeeded, VM creation without the permitted pool was denied, and mutation of the existing protected `Hermes` VM outside `HermesManaged` was rejected by the MCP pool boundary. Those are tests of this architecture, not guarantees for an arbitrary installation. Repeat them after configuring your own Proxmox ACLs.
+
 ## Tools
 
 ### Cluster & Nodes
@@ -200,7 +324,7 @@ All configuration is via environment variables:
 | Variable | Required | Description |
 |---|---|---|
 | `PROXMOX_API_URL` | yes | e.g. `https://pve:8006/api2/json` |
-| `PROXMOX_TOKEN_ID` | yes | e.g. `root@pam!mcp` |
+| `PROXMOX_TOKEN_ID` | yes | e.g. `user@realm!tokenid` (use a dedicated non-root identity) |
 | `PROXMOX_TOKEN_SECRET` | yes | Token UUID secret |
 | `PROXMOX_INSECURE` | no | `true` to skip TLS verification (self-signed certs) |
 | `PROXMOX_ALLOW_DESTRUCTIVE` | no | `true` to register `delete_vm`, `delete_container`, `delete_storage_content`, `reboot_node`, `shutdown_node`, and `delete_pool` tools (default: disabled) |
@@ -239,7 +363,8 @@ Create `.vscode/mcp.json` in your workspace (already gitignored):
       "env": {
         "PROXMOX_API_URL": "https://your-proxmox-host:8006/api2/json",
         "PROXMOX_TOKEN_ID": "user@realm!tokenid",
-        "PROXMOX_TOKEN_SECRET": "your-token-secret"
+        "PROXMOX_TOKEN_SECRET": "your-token-secret",
+        "PROXMOX_ALLOWED_POOL": "HermesManaged"
       }
     }
   }
@@ -260,7 +385,8 @@ Add the server to `~/Library/Application Support/Claude/claude_desktop_config.js
       "env": {
         "PROXMOX_API_URL": "https://your-proxmox-host:8006/api2/json",
         "PROXMOX_TOKEN_ID": "user@realm!tokenid",
-        "PROXMOX_TOKEN_SECRET": "your-token-secret"
+        "PROXMOX_TOKEN_SECRET": "your-token-secret",
+        "PROXMOX_ALLOWED_POOL": "HermesManaged"
       }
     }
   }
@@ -284,7 +410,8 @@ Add the server to `opencode.json` in your project root (or `~/.config/opencode/o
       "environment": {
         "PROXMOX_API_URL": "https://your-proxmox-host:8006/api2/json",
         "PROXMOX_TOKEN_ID": "user@realm!tokenid",
-        "PROXMOX_TOKEN_SECRET": "your-token-secret"
+        "PROXMOX_TOKEN_SECRET": "your-token-secret",
+        "PROXMOX_ALLOWED_POOL": "HermesManaged"
       }
     }
   }
