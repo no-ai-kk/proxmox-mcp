@@ -14,7 +14,7 @@ type poolRestrictedClient struct {
 	allowedPool string
 }
 
-func (c *poolRestrictedClient) verifyMember(ctx context.Context, kind, node string, vmid int) error {
+func (c *poolRestrictedClient) verifyMember(ctx context.Context, kind string, vmid int) error {
 	pool, err := c.GetPool(ctx, c.allowedPool)
 	if err != nil {
 		return fmt.Errorf("verify %s %d pool membership: %w", kind, vmid, err)
@@ -27,12 +27,12 @@ func (c *poolRestrictedClient) verifyMember(ctx context.Context, kind, node stri
 	return fmt.Errorf("%s %d is not a member of allowed pool %q", kind, vmid, c.allowedPool)
 }
 
-func (c *poolRestrictedClient) verifyVM(ctx context.Context, node string, vmid int) error {
-	return c.verifyMember(ctx, "VM", node, vmid)
+func (c *poolRestrictedClient) verifyVM(ctx context.Context, vmid int) error {
+	return c.verifyMember(ctx, "VM", vmid)
 }
 
-func (c *poolRestrictedClient) verifyContainer(ctx context.Context, node string, vmid int) error {
-	return c.verifyMember(ctx, "container", node, vmid)
+func (c *poolRestrictedClient) verifyContainer(ctx context.Context, vmid int) error {
+	return c.verifyMember(ctx, "container", vmid)
 }
 
 func (c *poolRestrictedClient) verifyAnyMember(ctx context.Context, vmid int) error {
@@ -82,7 +82,7 @@ func (c *poolRestrictedClient) CreateVM(ctx context.Context, node string, req *p
 }
 
 func (c *poolRestrictedClient) CloneVM(ctx context.Context, node string, vmid int, req *proxmox.CloneVMRequest) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return "", fmt.Errorf("clone_vm is unavailable when allowed pool %q is set: the Proxmox clone request cannot explicitly bind the destination to that pool", c.allowedPool)
@@ -93,7 +93,7 @@ func (c *poolRestrictedClient) CreateContainer(ctx context.Context, node string,
 }
 
 func (c *poolRestrictedClient) CloneContainer(ctx context.Context, node string, vmid int, req *proxmox.CloneContainerRequest) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return "", fmt.Errorf("clone_container is unavailable when allowed pool %q is set: the Proxmox clone request cannot explicitly bind the destination to that pool", c.allowedPool)
@@ -118,176 +118,203 @@ func (c *poolRestrictedClient) CreateBackup(ctx context.Context, node string, re
 }
 
 func (c *poolRestrictedClient) StartVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.StartVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) StopVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.StopVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) ShutdownVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.ShutdownVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) RebootVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.RebootVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) SuspendVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.SuspendVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) ResumeVM(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.ResumeVM(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) SetVMConfig(ctx context.Context, node string, vmid int, req *proxmox.SetVMConfigRequest) error {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.SetVMConfig(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) ResizeVMDisk(ctx context.Context, node string, vmid int, req *proxmox.ResizeDiskRequest) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.ResizeVMDisk(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) MigrateVM(ctx context.Context, node string, vmid int, req *proxmox.MigrateVMRequest) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.MigrateVM(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) MoveVMDisk(ctx context.Context, node string, vmid int, req *proxmox.MoveVMDiskRequest) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.MoveVMDisk(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) DeleteVM(ctx context.Context, node string, vmid int, purge bool) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.DeleteVM(ctx, node, vmid, purge)
 }
+
 func (c *poolRestrictedClient) CreateVMSnapshot(ctx context.Context, node string, vmid int, req proxmox.CreateVMSnapshotRequest) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.CreateVMSnapshot(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) RollbackVMSnapshot(ctx context.Context, node string, vmid int, snapname string) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.RollbackVMSnapshot(ctx, node, vmid, snapname)
 }
+
 func (c *poolRestrictedClient) DeleteVMSnapshot(ctx context.Context, node string, vmid int, snapname string) (string, error) {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.DeleteVMSnapshot(ctx, node, vmid, snapname)
 }
+
 func (c *poolRestrictedClient) AddVMFirewallRule(ctx context.Context, node string, vmid int, req *proxmox.FirewallRuleRequest) error {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.AddVMFirewallRule(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) DeleteVMFirewallRule(ctx context.Context, node string, vmid, pos int) error {
-	if err := c.verifyVM(ctx, node, vmid); err != nil {
+	if err := c.verifyVM(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.DeleteVMFirewallRule(ctx, node, vmid, pos)
 }
 
 func (c *poolRestrictedClient) StartContainer(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.StartContainer(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) StopContainer(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.StopContainer(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) ShutdownContainer(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.ShutdownContainer(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) RebootContainer(ctx context.Context, node string, vmid int) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.RebootContainer(ctx, node, vmid)
 }
+
 func (c *poolRestrictedClient) SetContainerConfig(ctx context.Context, node string, vmid int, req *proxmox.SetContainerConfigRequest) error {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.SetContainerConfig(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) ResizeContainerDisk(ctx context.Context, node string, vmid int, req *proxmox.ResizeDiskRequest) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.ResizeContainerDisk(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) MigrateContainer(ctx context.Context, node string, vmid int, req *proxmox.MigrateContainerRequest) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.MigrateContainer(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) DeleteContainer(ctx context.Context, node string, vmid int, purge bool) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.DeleteContainer(ctx, node, vmid, purge)
 }
+
 func (c *poolRestrictedClient) CreateContainerSnapshot(ctx context.Context, node string, vmid int, req proxmox.CreateContainerSnapshotRequest) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.CreateContainerSnapshot(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) RollbackContainerSnapshot(ctx context.Context, node string, vmid int, snapname string) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.RollbackContainerSnapshot(ctx, node, vmid, snapname)
 }
+
 func (c *poolRestrictedClient) DeleteContainerSnapshot(ctx context.Context, node string, vmid int, snapname string) (string, error) {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return "", err
 	}
 	return c.proxmoxClient.DeleteContainerSnapshot(ctx, node, vmid, snapname)
 }
+
 func (c *poolRestrictedClient) AddContainerFirewallRule(ctx context.Context, node string, vmid int, req *proxmox.FirewallRuleRequest) error {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.AddContainerFirewallRule(ctx, node, vmid, req)
 }
+
 func (c *poolRestrictedClient) DeleteContainerFirewallRule(ctx context.Context, node string, vmid, pos int) error {
-	if err := c.verifyContainer(ctx, node, vmid); err != nil {
+	if err := c.verifyContainer(ctx, vmid); err != nil {
 		return err
 	}
 	return c.proxmoxClient.DeleteContainerFirewallRule(ctx, node, vmid, pos)
