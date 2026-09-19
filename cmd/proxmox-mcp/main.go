@@ -68,7 +68,8 @@ func run() error {
 	insecure := os.Getenv("PROXMOX_INSECURE") == "true"
 	allowDestructive := os.Getenv("PROXMOX_ALLOW_DESTRUCTIVE") == "true"
 	allowedPool := os.Getenv("PROXMOX_ALLOWED_POOL")
-	allowedCloneSource, err := parseAllowedCloneSource(os.Getenv("PROXMOX_ALLOWED_CLONE_SOURCE"))
+	allowedCloneSourceValue := os.Getenv("PROXMOX_ALLOWED_CLONE_SOURCE")
+	allowedCloneSource, err := parseAllowedCloneSourceConfig(allowedPool, allowedCloneSourceValue)
 	if err != nil {
 		return err
 	}
@@ -135,6 +136,17 @@ func parseAllowedCloneSource(value string) (int, error) {
 	vmid, err := strconv.Atoi(value)
 	if err != nil || vmid <= 0 {
 		return 0, fmt.Errorf("PROXMOX_ALLOWED_CLONE_SOURCE must be a positive decimal VMID, got %q", value)
+	}
+	return vmid, nil
+}
+
+func parseAllowedCloneSourceConfig(allowedPool, allowedCloneSource string) (int, error) {
+	vmid, err := parseAllowedCloneSource(allowedCloneSource)
+	if err != nil {
+		return 0, err
+	}
+	if allowedCloneSource != "" && allowedPool == "" {
+		return 0, fmt.Errorf("PROXMOX_ALLOWED_CLONE_SOURCE requires PROXMOX_ALLOWED_POOL to be set")
 	}
 	return vmid, nil
 }

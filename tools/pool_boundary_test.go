@@ -183,6 +183,25 @@ func TestPoolRestrictionCloneVM(t *testing.T) {
 	})
 }
 
+func TestPoolRestrictionCloneVMRequiresConfiguredTrustedSource(t *testing.T) {
+	called := false
+	client := &poolRestrictedClient{
+		proxmoxClient: &mockProxmoxClient{
+			getPoolFn: func(context.Context, string) (*proxmox.Pool, error) {
+				return &proxmox.Pool{Members: []proxmox.PoolMember{{Type: "qemu", VMID: 200}}}, nil
+			},
+			cloneVMFn: func(context.Context, string, int, *proxmox.CloneVMRequest) (string, error) {
+				called = true
+				return "upid", nil
+			},
+		},
+		allowedPool: "HermesManaged",
+	}
+	if _, err := client.CloneVM(context.Background(), "node", 901, &proxmox.CloneVMRequest{NewID: 902, Pool: "HermesManaged"}); err == nil || !strings.Contains(err.Error(), "not a member") || called {
+		t.Fatalf("outside-pool source was not rejected without trusted source: err=%v called=%v", err, called)
+	}
+}
+
 func TestPoolRestrictionTrustedCloneSourceDoesNotBypassMutationBoundary(t *testing.T) {
 	called := false
 	client := &poolRestrictedClient{

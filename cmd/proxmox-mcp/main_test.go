@@ -34,3 +34,15 @@ func TestParseAllowedCloneSource(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAllowedCloneSourceConfigRequiresPool(t *testing.T) {
+	if _, err := parseAllowedCloneSourceConfig("", "901"); err == nil || !strings.Contains(err.Error(), "requires PROXMOX_ALLOWED_POOL") {
+		t.Fatalf("got %v; want missing-pool configuration error", err)
+	}
+	if got, err := parseAllowedCloneSourceConfig("HermesManaged", ""); err != nil || got != 0 {
+		t.Fatalf("unset source with pool changed behavior: got %d, %v", got, err)
+	}
+	if got, err := parseAllowedCloneSourceConfig("", ""); err != nil || got != 0 {
+		t.Fatalf("both unset changed behavior: got %d, %v", got, err)
+	}
+}

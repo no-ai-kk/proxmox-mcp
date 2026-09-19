@@ -65,9 +65,10 @@ pveum user token add hermes@pve agent --privsep 1
 # Resource pool for agent-managed guests
 pveum pool add HermesManaged --comment "VMs managed by Hermes Agent"
 
-# Custom role for the operations exposed by this MCP.
-# VM.Clone is needed when clone support is intentionally used. In restricted
-# mode, the MCP also requires the clone destination pool in the clone request.
+# Custom role for the managed-pool operations exposed by this MCP.
+# Do not add VM.Clone to this managed-guest role. The trusted source-template
+# permission is intentionally separate and will be determined and validated
+# against the minimum required Proxmox ACL before deployment.
 pveum role add HermesVMAdmin --privs "VM.Audit,VM.Allocate,VM.Backup,VM.Config.CDROM,VM.Config.CPU,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Migrate,VM.PowerMgmt,VM.Snapshot,VM.Snapshot.Rollback"
 
 # Read/discovery access: assign to BOTH the user and the token.
@@ -112,7 +113,7 @@ The current implementation reads this variable once at server startup. When it i
 - `list_pools` explicitly resolves the configured pool instead of relying on unfiltered `GET /pools`, then returns that verified pool. `get_pool` remains available for explicit inspection.
 - `create_pool`, `update_pool`, and `delete_pool` are rejected locally while the restriction is enabled, so the agent cannot modify its own security boundary.
 - `clone_vm` requires an explicit `pool` argument while restricted. The value must exactly equal `PROXMOX_ALLOWED_POOL`, and it is sent as the Proxmox clone operation's destination `pool` field atomically with `newid`; the MCP never creates outside the pool and moves afterward.
-- `PROXMOX_ALLOWED_CLONE_SOURCE` is an optional single VMID exception for `clone_vm` only. For example, with `PROXMOX_ALLOWED_CLONE_SOURCE=901`, VM 901 may be used as a read/clone source even when it is outside `HermesManaged`; it does not pass normal pool membership checks and does not gain start, stop, configure, resize, migrate, disk-move, snapshot, delete, or firewall mutation rights. A source VMID other than the configured value must be an actual member of the allowed pool.
+- `PROXMOX_ALLOWED_CLONE_SOURCE` is an optional single VMID exception for `clone_vm` only, and may be set only when `PROXMOX_ALLOWED_POOL` is also set. For example, with `PROXMOX_ALLOWED_CLONE_SOURCE=901`, VM 901 may be used as a read/clone source even when it is outside `HermesManaged`; it does not pass normal pool membership checks and does not gain start, stop, configure, resize, migrate, disk-move, snapshot, delete, or firewall mutation rights. A source VMID other than the configured value must be an actual member of the allowed pool.
 - `clone_container`, `restore_vm`, `restore_container`, and `create_container` remain rejected while restricted because their current requests cannot safely guarantee destination membership in the configured pool. VM/container backup remains subject to source membership verification.
 - Destructive tools are controlled separately by `PROXMOX_ALLOW_DESTRUCTIVE` and are disabled by default. If enabled, destructive VM/container operations still pass through the pool boundary.
 - Read-only operations remain governed by the Proxmox API token’s ACLs; the MCP-side restriction is primarily a mutation boundary.
