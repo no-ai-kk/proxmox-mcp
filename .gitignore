@@ -1,5 +1,5 @@
 # Binary output
-bin/
+/bin/
 
 # Environment / secrets — never commit these
 .env
